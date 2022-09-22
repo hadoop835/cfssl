@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
 	"io/ioutil"
@@ -15,20 +16,20 @@ import (
 	"github.com/cloudflare/cfssl/helpers"
 )
 
-//TestNew validate the CertificateRequest created to return with a BasicKeyRequest
+//TestNew validate the CertificateRequest created to return with a KeyRequest
 //in KeyRequest field
 
 func TestNew(t *testing.T) {
 
 	if cr := New(); cr.KeyRequest == nil {
-		t.Fatalf("Should create a new, empty certificate request with BasicKeyRequest")
+		t.Fatalf("Should create a new, empty certificate request with KeyRequest")
 	}
 }
 
-// TestBasicKeyRequest ensures that key generation returns the same type of
-// key specified in the BasicKeyRequest.
-func TestBasicKeyRequest(t *testing.T) {
-	kr := NewBasicKeyRequest()
+// TestKeyRequest ensures that key generation returns the same type of
+// key specified in the KeyRequest.
+func TestKeyRequest(t *testing.T) {
+	kr := NewKeyRequest()
 	priv, err := kr.Generate()
 	if err != nil {
 		t.Fatalf("%v", err)
@@ -68,10 +69,13 @@ func TestPKIXName(t *testing.T) {
 			},
 		},
 		Hosts:      []string{"cloudflare.com", "www.cloudflare.com"},
-		KeyRequest: NewBasicKeyRequest(),
+		KeyRequest: NewKeyRequest(),
 	}
 
-	name := cr.Name()
+	name, err := cr.Name()
+	if err != nil {
+		t.Fatalf("Error getting name: %s", err.Error())
+	}
 	if len(name.Country) != 2 {
 		t.Fatal("Expected two countries in SubjInfo.")
 	} else if len(name.Province) != 2 {
@@ -108,13 +112,45 @@ func TestParseRequest(t *testing.T) {
 				OU: "Systems Engineering",
 			},
 		},
-		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1", "jdoe@example.com"},
-		KeyRequest: NewBasicKeyRequest(),
+		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1", "jdoe@example.com", "https://www.cloudflare.com"},
+		KeyRequest: NewKeyRequest(),
+		Extensions: []pkix.Extension{
+			pkix.Extension{
+				Id:    asn1.ObjectIdentifier{1, 2, 3, 4, 5},
+				Value: []byte("AgEB"),
+			},
+		},
 	}
 
-	_, _, err := ParseRequest(cr)
+	csrBytes, _, err := ParseRequest(cr)
 	if err != nil {
 		t.Fatalf("%v", err)
+	}
+
+	block, _ := pem.Decode(csrBytes)
+	if block == nil {
+		t.Fatalf("%v", err)
+	}
+
+	if block.Type != "CERTIFICATE REQUEST" {
+		t.Fatalf("Incorrect block type: %s", block.Type)
+	}
+
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	found := false
+	for _, ext := range csr.Extensions {
+		if ext.Id.Equal(asn1.ObjectIdentifier{1, 2, 3, 4, 5}) {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("CSR did not include Custom Extension")
 	}
 }
 
@@ -143,7 +179,7 @@ func TestParseRequestCA(t *testing.T) {
 			PathLength:  0,
 			PathLenZero: true,
 		},
-		KeyRequest: NewBasicKeyRequest(),
+		KeyRequest: NewKeyRequest(),
 	}
 
 	csrBytes, _, err := ParseRequest(cr)
@@ -204,7 +240,7 @@ func TestParseRequestCANoPathlen(t *testing.T) {
 			PathLength:  0,
 			PathLenZero: false,
 		},
-		KeyRequest: NewBasicKeyRequest(),
+		KeyRequest: NewKeyRequest(),
 	}
 
 	csrBytes, _, err := ParseRequest(cr)
@@ -262,7 +298,7 @@ func TestECGeneration(t *testing.T) {
 	var eckey *ecdsa.PrivateKey
 
 	for _, sz := range []int{256, 384, 521} {
-		kr := &BasicKeyRequest{"ecdsa", sz}
+		kr := &KeyRequest{"ecdsa", sz}
 		priv, err := kr.Generate()
 		if err != nil {
 			t.Fatalf("%v", err)
@@ -281,7 +317,7 @@ func TestRSAKeyGeneration(t *testing.T) {
 	var rsakey *rsa.PrivateKey
 
 	for _, sz := range []int{2048, 3072, 4096} {
-		kr := &BasicKeyRequest{"rsa", sz}
+		kr := &KeyRequest{"rsa", sz}
 		priv, err := kr.Generate()
 		if err != nil {
 			t.Fatalf("%v", err)
@@ -296,12 +332,12 @@ func TestRSAKeyGeneration(t *testing.T) {
 	}
 }
 
-// TestBadBasicKeyRequest ensures that generating a key from a BasicKeyRequest
+// TestBadKeyRequest ensures that generating a key from a KeyRequest
 // fails with an invalid algorithm, or an invalid RSA or ECDSA key
 // size. An invalid ECDSA key size is any size other than 256, 384, or
 // 521; an invalid RSA key size is any size less than 2048 bits.
-func TestBadBasicKeyRequest(t *testing.T) {
-	kr := &BasicKeyRequest{"yolocrypto", 1024}
+func TestBadKeyRequest(t *testing.T) {
+	kr := &KeyRequest{"yolocrypto", 1024}
 
 	if _, err := kr.Generate(); err == nil {
 		t.Fatal("Key generation should fail with invalid algorithm")
@@ -323,7 +359,7 @@ func TestBadBasicKeyRequest(t *testing.T) {
 		t.Fatal("The wrong signature algorithm was returned from SigAlgo!")
 	}
 
-	kr = &BasicKeyRequest{"tobig", 9216}
+	kr = &KeyRequest{"tobig", 9216}
 
 	kr.A = "rsa"
 	if _, err := kr.Generate(); err == nil {
@@ -333,9 +369,9 @@ func TestBadBasicKeyRequest(t *testing.T) {
 	}
 }
 
-// TestDefaultBasicKeyRequest makes sure that certificate requests without
+// TestDefaultKeyRequest makes sure that certificate requests without
 // explicit key requests fall back to the default key request.
-func TestDefaultBasicKeyRequest(t *testing.T) {
+func TestDefaultKeyRequest(t *testing.T) {
 	var req = &CertificateRequest{
 		Names: []Name{
 			{
@@ -347,7 +383,7 @@ func TestDefaultBasicKeyRequest(t *testing.T) {
 			},
 		},
 		CN:    "cloudflare.com",
-		Hosts: []string{"cloudflare.com", "www.cloudflare.com", "jdoe@example.com"},
+		Hosts: []string{"cloudflare.com", "www.cloudflare.com", "jdoe@example.com", "https://www.cloudflare.com"},
 	}
 	_, priv, err := ParseRequest(req)
 	if err != nil {
@@ -360,7 +396,7 @@ func TestDefaultBasicKeyRequest(t *testing.T) {
 		t.Fatal("Bad private key was generated!")
 	}
 
-	DefaultKeyRequest := NewBasicKeyRequest()
+	DefaultKeyRequest := NewKeyRequest()
 	switch block.Type {
 	case "RSA PRIVATE KEY":
 		if DefaultKeyRequest.Algo() != "rsa" {
@@ -387,8 +423,8 @@ func TestRSACertRequest(t *testing.T) {
 			},
 		},
 		CN:         "cloudflare.com",
-		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "jdoe@example.com"},
-		KeyRequest: &BasicKeyRequest{"rsa", 2048},
+		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "jdoe@example.com", "https://www.cloudflare.com"},
+		KeyRequest: &KeyRequest{"rsa", 2048},
 	}
 	_, _, err := ParseRequest(req)
 	if err != nil {
@@ -410,7 +446,7 @@ func TestBadCertRequest(t *testing.T) {
 		},
 		CN:         "cloudflare.com",
 		Hosts:      []string{"cloudflare.com", "www.cloudflare.com"},
-		KeyRequest: &BasicKeyRequest{"yolo-crypto", 2048},
+		KeyRequest: &KeyRequest{"yolo-crypto", 2048},
 	}
 	_, _, err := ParseRequest(req)
 	if err == nil {
@@ -444,8 +480,8 @@ func TestGenerator(t *testing.T) {
 			},
 		},
 		CN:         "cloudflare.com",
-		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1", "jdoe@example.com"},
-		KeyRequest: &BasicKeyRequest{"rsa", 2048},
+		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1", "jdoe@example.com", "https://www.cloudflare.com"},
+		KeyRequest: &KeyRequest{"rsa", 2048},
 	}
 
 	csrBytes, _, err := g.ProcessRequest(req)
@@ -479,6 +515,10 @@ func TestGenerator(t *testing.T) {
 		t.Fatal("SAN parsing error")
 	}
 
+	if len(csr.URIs) != 1 {
+		t.Fatal("SAN parsing error")
+	}
+
 }
 
 // TestBadGenerator ensures that a request that fails the validator is
@@ -497,7 +537,7 @@ func TestBadGenerator(t *testing.T) {
 		},
 		// Missing CN
 		Hosts:      []string{"cloudflare.com", "www.cloudflare.com"},
-		KeyRequest: &BasicKeyRequest{"rsa", 2048},
+		KeyRequest: &KeyRequest{"rsa", 2048},
 	}
 
 	_, _, err := g.ProcessRequest(missingCN)
@@ -518,8 +558,8 @@ func TestWeakCSR(t *testing.T) {
 			},
 		},
 		CN:         "cloudflare.com",
-		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "jdoe@example.com"},
-		KeyRequest: &BasicKeyRequest{"rsa", 1024},
+		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "jdoe@example.com", "https://www.cloudflare.com"},
+		KeyRequest: &KeyRequest{"rsa", 1024},
 	}
 	g := &Generator{testValidator}
 
@@ -579,8 +619,8 @@ func TestGenerate(t *testing.T) {
 			},
 		},
 		CN:         "cloudflare.com",
-		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1", "jdoe@example.com"},
-		KeyRequest: &BasicKeyRequest{"ecdsa", 256},
+		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1", "jdoe@example.com", "https://www.cloudflare.com"},
+		KeyRequest: &KeyRequest{"ecdsa", 256},
 	}
 
 	key, err := req.KeyRequest.Generate()
@@ -614,6 +654,10 @@ func TestGenerate(t *testing.T) {
 	if len(csr.EmailAddresses) != 1 {
 		t.Fatal("SAN parsing error")
 	}
+
+	if len(csr.URIs) != 1 {
+		t.Fatal("SAN parsing error")
+	}
 }
 
 // TestReGenerate ensures Regenerate() is abel to use the provided CSR as a template for signing a new
@@ -631,7 +675,7 @@ func TestReGenerate(t *testing.T) {
 		},
 		CN:         "cloudflare.com",
 		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1"},
-		KeyRequest: &BasicKeyRequest{"ecdsa", 256},
+		KeyRequest: &KeyRequest{"ecdsa", 256},
 	}
 
 	_, key, err := ParseRequest(req)
@@ -674,7 +718,7 @@ func TestBadReGenerate(t *testing.T) {
 		},
 		CN:         "cloudflare.com",
 		Hosts:      []string{"cloudflare.com", "www.cloudflare.com", "192.168.0.1"},
-		KeyRequest: &BasicKeyRequest{"ecdsa", 256},
+		KeyRequest: &KeyRequest{"ecdsa", 256},
 	}
 
 	_, key, err := ParseRequest(req)
@@ -740,5 +784,52 @@ func TestExtractCertificateRequest(t *testing.T) {
 
 	if req.CA == nil || req.CA.PathLength != 2 {
 		t.Fatal("Bad Certificate Request!")
+	}
+}
+
+// TestDelegationCSR tests that we create requests with the DC extension
+func TestDelegationCSR(t *testing.T) {
+	var cr = &CertificateRequest{
+		CN: "Test Common Name",
+		Names: []Name{
+			{
+				C:  "US",
+				ST: "California",
+				L:  "San Francisco",
+				O:  "CloudFlare, Inc.",
+				OU: "Systems Engineering",
+			},
+			{
+				C:  "GB",
+				ST: "London",
+				L:  "London",
+				O:  "CloudFlare, Inc",
+				OU: "Systems Engineering",
+			},
+		},
+		DelegationEnabled: true,
+		Hosts:             []string{"cloudflare.com", "www.cloudflare.com"},
+		KeyRequest:        NewKeyRequest(),
+	}
+	csr, _, err := ParseRequest(cr)
+	if err != nil {
+		t.Fatal("could not generate csr")
+	}
+	unPem, _ := pem.Decode(csr)
+	if unPem == nil {
+		t.Fatal("Failed to decode pem")
+	}
+	res, err := x509.ParseCertificateRequest(unPem.Bytes)
+	if err != nil {
+		t.Fatalf("spat out nonsense as a csr: %v", err)
+	}
+	found := false
+	for _, ext := range res.Extensions {
+		if ext.Id.Equal(helpers.DelegationUsage) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("generated csr has no extension")
 	}
 }

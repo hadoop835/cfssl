@@ -1,16 +1,11 @@
-FROM golang:1.9.2
+FROM golang:1.16.15@sha256:35fa3cfd4ec01a520f6986535d8f70a5eeef2d40fb8019ff626da24989bdd4f1
 
-ENV USER root
+WORKDIR /workdir
+COPY . /workdir
 
-WORKDIR /go/src/github.com/cloudflare/cfssl
-COPY . .
-
-# restore all deps and build
-RUN go get github.com/cloudflare/cfssl_trust/... && \
-    go get github.com/GeertJohan/go.rice/rice && \
-    rice embed-go -i=./cli/serve && \
-    cp -R /go/src/github.com/cloudflare/cfssl_trust /etc/cfssl && \
-    go install ./cmd/...
+RUN git clone https://github.com/cloudflare/cfssl_trust.git /etc/cfssl && \
+    make clean && \
+    make all && cp bin/* /usr/bin/
 
 EXPOSE 8888
 

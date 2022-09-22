@@ -32,6 +32,9 @@ import (
 // When unspecified, downloaded intermediates are not saved.
 var IntermediateStash string
 
+// HTTPClient is an instance of http.Client that will be used for all HTTP requests.
+var HTTPClient = http.DefaultClient
+
 // BundleFlavor is named optimization strategy on certificate chain selection when bundling.
 type BundleFlavor string
 
@@ -44,7 +47,7 @@ const (
 	// by the most platforms.
 	Ubiquitous BundleFlavor = "ubiquitous"
 
-	// Force means the bundler only verfiies the input as a valid bundle, not optimization is done.
+	// Force means the bundler only verifies the input as a valid bundle, not optimization is done.
 	Force BundleFlavor = "force"
 )
 
@@ -333,7 +336,7 @@ type fetchedIntermediate struct {
 func fetchRemoteCertificate(certURL string) (fi *fetchedIntermediate, err error) {
 	log.Debugf("fetching remote certificate: %s", certURL)
 	var resp *http.Response
-	resp, err = http.Get(certURL)
+	resp, err = HTTPClient.Get(certURL)
 	if err != nil {
 		log.Debugf("failed HTTP get: %v", err)
 		return
@@ -470,7 +473,7 @@ func constructCertFileName(cert *x509.Certificate) string {
 // intermediate pool, the certificate is saved to file and added to
 // the list of intermediates to be used for verification. This will
 // not add any new certificates to the root pool; if the ultimate
-// issuer is not trusted, fetching the certicate here will not change
+// issuer is not trusted, fetching the certificate here will not change
 // that.
 func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 	if IntermediateStash != "" {
