@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	neturl "net/url"
 	"sync"
@@ -57,16 +56,10 @@ func ldapURL(url string) bool {
 // is revoked, the second indicates whether the revocations were
 // successfully checked.. This leads to the following combinations:
 //
-//  false, false: an error was encountered while checking revocations.
-//
-//  false, true:  the certificate was checked successfully and
-//                  it is not revoked.
-//
-//  true, true:   the certificate was checked successfully and
-//                  it is revoked.
-//
-//  true, false:  failure to check revocation status causes
-//                  verification to fail
+// - false, false: an error was encountered while checking revocations.
+// - false, true:  the certificate was checked successfully, and it is not revoked.
+// - true, true:   the certificate was checked successfully, and it is revoked.
+// - true, false:  failure to check revocation status causes verification to fail
 func revCheck(cert *x509.Certificate) (revoked, ok bool, err error) {
 	for _, url := range cert.CRLDistributionPoints {
 		if ldapURL(url) {
@@ -318,21 +311,21 @@ func sendOCSPRequest(server string, req []byte, leaf, issuer *x509.Certificate) 
 	return ocsp.ParseResponseForCert(body, leaf, issuer)
 }
 
-var crlRead = ioutil.ReadAll
+var crlRead = io.ReadAll
 
 // SetCRLFetcher sets the function to use to read from the http response body
 func SetCRLFetcher(fn func(io.Reader) ([]byte, error)) {
 	crlRead = fn
 }
 
-var remoteRead = ioutil.ReadAll
+var remoteRead = io.ReadAll
 
 // SetRemoteFetcher sets the function to use to read from the http response body
 func SetRemoteFetcher(fn func(io.Reader) ([]byte, error)) {
 	remoteRead = fn
 }
 
-var ocspRead = ioutil.ReadAll
+var ocspRead = io.ReadAll
 
 // SetOCSPFetcher sets the function to use to read from the http response body
 func SetOCSPFetcher(fn func(io.Reader) ([]byte, error)) {
