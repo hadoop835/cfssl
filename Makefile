@@ -9,7 +9,11 @@ all: bin/cfssl bin/cfssl-bundle bin/cfssl-certinfo bin/cfssl-newkey bin/cfssl-sc
 
 bin/%: $(shell find . -type f -name '*.go')
 	@mkdir -p $(dir $@)
+ifneq ($(and $(TARGETOS),$(TARGETARCH)),)
+	GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) go build -ldflags $(LDFLAGS) -o $@ ./cmd/$(@F)
+else
 	go build -ldflags $(LDFLAGS) -o $@ ./cmd/$(@F)
+endif
 
 .PHONY: install
 install: install-cfssl install-cfssl-bundle install-cfssl-certinfo install-cfssl-newkey install-cfssl-scan install-cfssljson install-mkbundle install-multirootca
@@ -25,7 +29,11 @@ serve:
 
 bin/goose: $(shell find vendor -type f -name '*.go')
 	@mkdir -p $(dir $@)
+ifneq ($(and $(TARGETOS),$(TARGETARCH)),)
+	GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) go build -o $@ ./vendor/bitbucket.org/liamstask/goose/cmd/goose
+else
 	go build -o $@ ./vendor/bitbucket.org/liamstask/goose/cmd/goose
+endif
 
 .PHONY: clean
 clean:
@@ -52,7 +60,7 @@ snapshot:
 	--rm \
     -v $(PWD):/cross \
     -w /cross \
-    ghcr.io/gythialy/golang-cross:v1.18 --rm-dist --snapshot --skip-publish
+    ghcr.io/goreleaser/goreleaser-cross:latest --clean --snapshot --skip-publish
 
 .PHONY: github-release
 github-release:
@@ -63,7 +71,7 @@ github-release:
 	-e GITHUB_TOKEN=$(GITHUB_TOKEN) \
     -v $(PWD):/cross \
     -w /cross \
-    ghcr.io/gythialy/golang-cross:v1.18 --rm-dist
+    ghcr.io/goreleaser/goreleaser-cross:latest --clean
 
 .PHONY: docker-build
 docker-build:

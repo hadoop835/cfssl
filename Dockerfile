@@ -1,11 +1,21 @@
-FROM golang:1.16.15@sha256:35fa3cfd4ec01a520f6986535d8f70a5eeef2d40fb8019ff626da24989bdd4f1
+FROM --platform=${TARGETPLATFORM} golang:1.20
+
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+RUN echo "I am running on $BUILDPLATFORM, building for $TARGETPLATFORM" 
+
+LABEL org.opencontainers.image.source https://github.com/cloudflare/cfssl
+LABEL org.opencontainers.image.description "Cloudflare's PKI toolkit"
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /workdir
 COPY . /workdir
 
 RUN git clone https://github.com/cloudflare/cfssl_trust.git /etc/cfssl && \
     make clean && \
-    make all && cp bin/* /usr/bin/
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make all && cp bin/* /usr/bin/
 
 EXPOSE 8888
 
